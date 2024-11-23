@@ -7,6 +7,9 @@ from collections import deque
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import os
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Define the neural network
 class DQN(nn.Module):
@@ -48,7 +51,7 @@ HYPERPARAMS = {
     'learning_rate': 0.001,
     'target_update': 10,  # Frequency of target network update
     'memory_size': 10000,
-    'n_episodes': 100,
+    'n_episodes': 1000,
     'max_steps': 500,
 }
 
@@ -94,7 +97,7 @@ def train_agent(env, hidden_layers):
             
             state = next_state
             total_reward += reward
-            
+
             # Train Q-network
             if len(memory) >= HYPERPARAMS['batch_size']:
                 minibatch = memory.sample(HYPERPARAMS['batch_size'])
@@ -138,7 +141,7 @@ def train_agent(env, hidden_layers):
     return q_network, rewards_per_episode, losses
 
 # Testing function
-def test_agent(env, q_network, n_episodes=10, render=True):
+def test_agent(env, q_network, n_episodes=1000, render=True):
     total_rewards = []
     for episode in range(n_episodes):
         state, _ = env.reset()
@@ -189,5 +192,7 @@ if __name__ == "__main__":
     
     # Test the agent
     print("Testing the agent with 5 hidden layers...")
-    avg_reward = test_agent(env, q_network_5, render=False)
+    test_env = gym.make("CartPole-v1", render_mode="human")  # Render during testing
+
+    avg_reward = test_agent(test_env, q_network_5, render=True)
     print(f"Average reward over 10 episodes: {avg_reward}")
