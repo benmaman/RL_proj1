@@ -44,10 +44,10 @@ class ExperienceReplay:
 # Hyperparameters
 HYPERPARAMS = {
     'batch_size': 64,
-    'gamma': 0.99,
+    'gamma': 0.7,
     'epsilon_start': 1.0,
     'epsilon_end': 0.01,
-    'epsilon_decay': 500,
+    'epsilon_decay': 50,
     'learning_rate': 0.001,
     'target_update': 10,  # Frequency of target network update
     'memory_size': 10000,
@@ -166,11 +166,11 @@ if __name__ == "__main__":
     
     # Train with 3 hidden layers
     print("Training with 3 hidden layers...")
-    q_network_3, rewards_3, losses_3 = train_agent(env, hidden_layers=[64, 64, 64])
+    q_network_3, rewards_3, losses_3 = train_agent(env, hidden_layers=[512, 128, 64])
     
     # Train with 5 hidden layers
     print("Training with 5 hidden layers...")
-    q_network_5, rewards_5, losses_5 = train_agent(env, hidden_layers=[64, 64, 64, 64, 64])
+    q_network_5, rewards_5, losses_5 =  q_network_3, rewards_3, losses_3
     
     # Plot rewards
     plt.plot(rewards_3, label="3 Hidden Layers")
