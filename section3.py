@@ -3,11 +3,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import namedtuple, deque
+from collections import deque
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
+
+
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -27,9 +30,6 @@ class DQN(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
 # Define experience replay
 class ExperienceReplay:
     def __init__(self, capacity):
@@ -44,6 +44,19 @@ class ExperienceReplay:
     def __len__(self):
         return len(self.memory)
 
+# Hyperparameters
+HYPERPARAMS = {
+    'batch_size': 64,
+    'gamma': 0.8,
+    'epsilon_start': 1.0,
+    'epsilon_end': 0.01,
+    'epsilon_decay': 100,
+    'learning_rate': 0.001,
+    'target_update': 10,  # Frequency of target network update
+    'memory_size': 10000,
+    'n_episodes': 2000,
+    'max_steps': 1000,
+}
 
 # Decaying epsilon-greedy action selection
 def select_action(state, epsilon, n_actions, q_network):
@@ -56,7 +69,7 @@ def select_action(state, epsilon, n_actions, q_network):
             return q_values.argmax().item()  # Exploit
 
 # Training function
-def train_agent(env, hidden_layers,HYPERPARAMS):
+def train_agent_double_dqn(env, hidden_layers):
     # Initialize neural networks and experience replay
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
@@ -75,7 +88,6 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
     for episode in tqdm(range(HYPERPARAMS['n_episodes'])):
         state, _ = env.reset()
         total_reward = 0
-        episode_loss=0
         for t in range(HYPERPARAMS['max_steps']):
             # Select action
             action = select_action(state, epsilon, action_dim, q_network)
@@ -91,18 +103,21 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
 
             # Train Q-network
             if len(memory) >= HYPERPARAMS['batch_size']:
-                sample_batch = memory.sample(HYPERPARAMS['batch_size'])
-                states, sample_action, rewards, next_states, dones = zip(*sample_batch)
+                minibatch = memory.sample(HYPERPARAMS['batch_size'])
+                states, actions, rewards, next_states, dones = zip(*minibatch)
                 
                 states = torch.FloatTensor(states)
-                actions = torch.LongTensor(sample_action).unsqueeze(1)
+                actions = torch.LongTensor(actions).unsqueeze(1)
                 rewards = torch.FloatTensor(rewards)
                 next_states = torch.FloatTensor(next_states)
                 dones = torch.FloatTensor(dones)
                 
-                # Compute target Q-values
+                # Compute target Q-values using Double DQN
                 with torch.no_grad():
-                    next_q_values = target_network(next_states).max(1)[0]
+                    # Use the online network to select the best action
+                    next_actions = q_network(next_states).argmax(1).unsqueeze(1)
+                    # Use the target network to evaluate the value of the selected action
+                    next_q_values = target_network(next_states).gather(1, next_actions).squeeze(1)
                     target_q_values = rewards + HYPERPARAMS['gamma'] * next_q_values * (1 - dones)
                 
                 # Compute predicted Q-values
@@ -116,7 +131,7 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                episode_loss+=loss.item()
+            
             if done:
                 break
         
@@ -128,28 +143,16 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
             target_network.load_state_dict(q_network.state_dict())
         
         rewards_per_episode.append(total_reward)
-        losses.append(episode_loss / max(1, t))
-        if episode % 10 == 0:
-            avg_reward = np.mean(rewards_per_episode[-10:])
-            print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}, Loss: {episode_loss:.4f}, Epsilon: {epsilon:.4f}")
-        if episode % 100==0:
-            avg_reward = np.mean(rewards_per_episode[-100:])
-
-            print(f"Wow the model reach average reward of:{avg_reward} in the last 100 consectutive, current episode: {episode}")
+    
     return q_network, rewards_per_episode, losses
 
+
+
 # Testing function
-def test_agent(env, q_network, n_episodes=100, render=True):
+def test_agent(env, q_network, n_episodes=1000, render=True):
     total_rewards = []
     for episode in range(n_episodes):
-        # Reset the environment
         state, _ = env.reset()
-        
-        # Randomize the initial state to ensure varied scenarios
-        env.state = np.random.uniform(
-            low=-0.05, high=0.05, size=(4,)
-        )  # `CartPole-v1` has a 4-dimensional state
-        
         total_reward = 0
         while True:
             if render:
@@ -168,29 +171,19 @@ def test_agent(env, q_network, n_episodes=100, render=True):
 # Main function
 if __name__ == "__main__":
     env = gym.make("CartPole-v1")
-    
-    # Hyperparameters
-    HYPERPARAMS = {
-        'batch_size': 64,
-        'gamma': 0.99,
-        'epsilon_start': 1.0,
-        'epsilon_end': 0.01,
-        'epsilon_decay': 200,
-        'learning_rate': 0.001,
-        'target_update': 20,  # Frequency of target network update
-        'memory_size': 1000,
-        'n_episodes': 200,
-        'max_steps': 300,
-    }
-        
-    # Train  the model
-    print("Training the agent")
+    env.reset()
 
-    q_network, rewards, losses = train_agent(env, [512, 128, 64],HYPERPARAMS)
+    # Train with 3 hidden layers
+    print("Training with 3 hidden layers...")
+    q_network_3, rewards_3, losses_3 = train_agent_double_dqn(env, hidden_layers=[512, 128, 64])
     
+    # Train with 5 hidden layers
+    print("Training with 5 hidden layers...")
+    q_network_5, rewards_5, losses_5 =  q_network_3, rewards_3, losses_3
     
     # Plot rewards
-    plt.plot(rewards, label="3 Hidden Layers")
+    plt.plot(rewards_3, label="3 Hidden Layers")
+    plt.plot(rewards_5, label="5 Hidden Layers")
     plt.xlabel("Episode")
     plt.ylabel("Total Reward")
     plt.title("Total Rewards per Episode")
@@ -198,7 +191,8 @@ if __name__ == "__main__":
     plt.show()
     
     # Plot losses
-    plt.plot(losses, label="3 Hidden Layers")
+    plt.plot(losses_3, label="3 Hidden Layers")
+    plt.plot(losses_5, label="5 Hidden Layers")
     plt.xlabel("Training Step")
     plt.ylabel("Loss")
     plt.title("Loss per Training Step")
@@ -206,7 +200,7 @@ if __name__ == "__main__":
     plt.show()
     
     # Test the agent
-    print("Testing the agent")
+    print("Testing the agent with 5 hidden layers...")
     test_env = gym.make("CartPole-v1", render_mode="human")  # Render during testing
 
     avg_reward = test_agent(test_env, q_network_5, render=True)
