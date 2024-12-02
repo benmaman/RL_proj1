@@ -8,6 +8,8 @@ import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
+from itertools import product
+import pandas as pd
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -64,7 +66,7 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
     target_network = DQN(state_dim, action_dim, hidden_layers)
     target_network.load_state_dict(q_network.state_dict())
     target_network.eval()
-    optimizer = optim.Adam(q_network.parameters(), lr=HYPERPARAMS['learning_rate'])
+    optimizer = optim.Adam(q_network.parameters(), lr=HYPERPARAMS['learning_rate'],amsgrad=True)
     memory = ExperienceReplay(HYPERPARAMS['memory_size'])
     
     epsilon = HYPERPARAMS['epsilon_start']
@@ -72,15 +74,22 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
     rewards_per_episode = []
     losses = []
     
+    # store the best results
+    best_episode=-1
+    best_score=-1
+
     for episode in tqdm(range(HYPERPARAMS['n_episodes'])):
         state, _ = env.reset()
         total_reward = 0
         episode_loss=0
+
         for t in range(HYPERPARAMS['max_steps']):
             # Select action
             action = select_action(state, epsilon, action_dim, q_network)
             # Execute action
             next_state, reward, terminated, truncated, _ = env.step(action)
+
+            reward = reward - 3*abs(state[0])  # Penalize based on cart position
             done = terminated or truncated
             
             # Store experience
@@ -132,11 +141,14 @@ def train_agent(env, hidden_layers,HYPERPARAMS):
         if episode % 10 == 0:
             avg_reward = np.mean(rewards_per_episode[-10:])
             print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}, Loss: {episode_loss:.4f}, Epsilon: {epsilon:.4f}")
-        if episode % 100==0:
-            avg_reward = np.mean(rewards_per_episode[-100:])
+            if episode >100:
+                long_avg_reward = np.mean(rewards_per_episode[-100:])
+                print(f"Wow the model reach average reward of:{long_avg_reward} in the last 100 consectutive, current episode: {episode}")
+                if long_avg_reward>450:
+                    best_score=long_avg_reward
+                    best_episode=episode
 
-            print(f"Wow the model reach average reward of:{avg_reward} in the last 100 consectutive, current episode: {episode}")
-    return q_network, rewards_per_episode, losses
+    return target_network, rewards_per_episode, losses,best_score,best_episode
 
 # Testing function
 def test_agent(env, q_network, n_episodes=100, render=True):
@@ -168,27 +180,63 @@ def test_agent(env, q_network, n_episodes=100, render=True):
 # Main function
 if __name__ == "__main__":
     env = gym.make("CartPole-v1")
-    
-    # Hyperparameters
-    HYPERPARAMS = {
-        'batch_size': 64,
-        'gamma': 0.99,
-        'epsilon_start': 1.0,
-        'epsilon_end': 0.01,
-        'epsilon_decay': 200,
-        'learning_rate': 0.001,
-        'target_update': 20,  # Frequency of target network update
-        'memory_size': 1000,
-        'n_episodes': 200,
-        'max_steps': 300,
+    summary={}
+        # Hyperparameters
+    HYPERPARAMS_grid = {
+        'batch_size': [128],
+        'gamma': [ 0.999],
+        'epsilon_start': [0.9],
+        'epsilon_end': [0.05],
+        'epsilon_decay': [700],
+        'learning_rate': [0.00005],
+        'target_update': [ 10],
+        'memory_size': [ 50000],
+        'n_episodes': [600],
+        'max_steps': [1000],
     }
-        
-    # Train  the model
-    print("Training the agent")
 
-    q_network, rewards, losses = train_agent(env, [512, 128, 64],HYPERPARAMS)
-    
-    
+    # Flatten the grid into combinations
+    hyperparam_combinations = list(product(*HYPERPARAMS_grid.values()))
+    param_names = list(HYPERPARAMS_grid.keys())
+
+    # Store results
+    results = []
+
+    # Training loop for hyperparameter tuning
+    for params in hyperparam_combinations:
+        # Create a hyperparameter dictionary for the current combination
+        current_params = dict(zip(param_names, params))
+        print(f"Training with parameters: {current_params}")
+        
+        try:
+            # Train the agent with the current hyperparameters
+            q_network, rewards, losses, best_reward, best_episode = train_agent(
+                env, [128, 128, 128], current_params
+            )
+            
+            # Store the results
+            results.append({
+                **current_params,
+                'best_reward': best_reward,
+                'best_episode': best_episode
+            })
+            
+        except Exception as e:
+            # Handle exceptions gracefully and log failed configurations
+            print(f"Failed with parameters {current_params}: {e}")
+            results.append({
+                **current_params,
+                'best_reward': None,
+                'best_episode': None,
+                'error': str(e)
+            })
+
+    # Convert results to a DataFrame
+    results_df = pd.DataFrame(results)
+    results_df.to_csv("resluts_for_3_layer")
+
+
+
     # Plot rewards
     plt.plot(rewards, label="3 Hidden Layers")
     plt.xlabel("Episode")
@@ -209,5 +257,5 @@ if __name__ == "__main__":
     print("Testing the agent")
     test_env = gym.make("CartPole-v1", render_mode="human")  # Render during testing
 
-    avg_reward = test_agent(test_env, q_network_5, render=True)
+    avg_reward = test_agent(test_env, q_network, render=True)
     print(f"Average reward over 10 episodes: {avg_reward}")
