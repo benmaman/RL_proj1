@@ -1,0 +1,2 @@
+,alpha,gamma,epsilon,epsilon_decay,epsilon_min,n_episodes,max_steps,total_reward,mean_reward,final_epsilon,last_100_episodes_reward
+0,0.1,0.99,0.01,0.9,0.01,5000.0,100.0,1.0,0.0002,1.6313501853428272e-231,0.0
